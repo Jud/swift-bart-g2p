@@ -14,7 +14,7 @@ public final class BARTG2P {
     private static let posOff = 2
     private static let bosId = 1
     private static let eosId = 2
-    private static let scale: Float = 1.0 / sqrtf(128.0)
+    private static let scale: Float = 1.0 / sqrtf(Float(d))
 
     private let graphemeToId: [Character: Int]
     private let idToPhoneme: [Int: Character]
@@ -148,14 +148,12 @@ public final class BARTG2P {
         let d = Self.d
         let n = ids.count
         var x = [Float](repeating: 0, count: n * d)
-        for i in 0..<n {
-            let tOff = ids[i] * d
-            let pOff = (i + Self.posOff) * d
-            sharedW.withUnsafeBufferPointer { sw in
-                posW.withUnsafeBufferPointer { pw in
-                    x.withUnsafeMutableBufferPointer { xb in
-                        vDSP_vadd(sw.baseAddress! + tOff, 1,
-                                  pw.baseAddress! + pOff, 1,
+        sharedW.withUnsafeBufferPointer { sw in
+            posW.withUnsafeBufferPointer { pw in
+                x.withUnsafeMutableBufferPointer { xb in
+                    for i in 0..<n {
+                        vDSP_vadd(sw.baseAddress! + ids[i] * d, 1,
+                                  pw.baseAddress! + (i + Self.posOff) * d, 1,
                                   xb.baseAddress! + i * d, 1,
                                   vDSP_Length(d))
                     }
@@ -195,27 +193,12 @@ public final class BARTG2P {
         var tokens = [Self.bosId]
         let maxSteps = min(50, Self.maxPos - 2)
 
-        // Pre-allocate causal mask at maximum size.
-        var maskBuf = [Float](repeating: -1e9, count: maxSteps * maxSteps)
-        for i in 0..<maxSteps {
-            for j in 0...i { maskBuf[i * maxSteps + j] = 0 }
-        }
-
         for _ in 0..<maxSteps {
             let n = tokens.count
             let x = embed(tokens, posW: dPosW, lnW: dLnEW, lnB: dLnEB)
 
-            // Extract n*n causal mask from pre-allocated buffer.
-            var mask = [Float](repeating: 0, count: n * n)
-            mask.withUnsafeMutableBufferPointer { dst in
-                maskBuf.withUnsafeBufferPointer { src in
-                    for i in 0..<n {
-                        memcpy(dst.baseAddress! + i * n,
-                               src.baseAddress! + i * maxSteps,
-                               n * MemoryLayout<Float>.size)
-                    }
-                }
-            }
+            var mask = [Float](repeating: -1e9, count: n * n)
+            for i in 0..<n { for j in 0...i { mask[i * n + j] = 0 } }
 
             var sa = fullAttn(x, ctx: x, n: n, cLen: n, mask: mask,
                               qW: dSQW, qB: dSQB, kW: dSKW, kB: dSKB,
