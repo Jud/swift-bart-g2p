@@ -21,7 +21,9 @@ public struct SafetensorsLoader {
             throw BARTG2PError.invalidSafetensors("File too small")
         }
 
-        let headerSize: UInt64 = data.withUnsafeBytes { $0.load(as: UInt64.self) }
+        let headerSize = data.withUnsafeBytes {
+            UInt64(littleEndian: $0.load(as: UInt64.self))
+        }
         let dataStart = 8 + Int(headerSize)
         guard dataStart <= data.count else {
             throw BARTG2PError.invalidSafetensors("Header exceeds file size")

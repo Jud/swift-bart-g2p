@@ -7,14 +7,14 @@ import Foundation
 /// Weights from `PeterReid/graphemes_to_phonemes_en_us` (3 MB safetensors).
 /// Pure Accelerate implementation — zero external dependencies.
 public final class BARTG2P {
-    private let d = 128          // d_model
-    private let ffnDim = 1024
-    private let vocabSize = 63
-    private let maxPos = 64
-    private let posOff = 2       // BART position offset
-    private let bosId = 1
-    private let eosId = 2
-    private let scale: Float     // 1/sqrt(d_model)
+    private static let d = 128
+    private static let ffnDim = 1024
+    private static let vocabSize = 63
+    private static let maxPos = 64
+    private static let posOff = 2
+    private static let bosId = 1
+    private static let eosId = 2
+    private static let scale: Float = 1.0 / sqrtf(128.0)
 
     private let graphemeToId: [Character: Int]
     private let idToPhoneme: [Int: Character]
@@ -59,7 +59,6 @@ public final class BARTG2P {
         var id2p = [Int: Character]()
         for (i, c) in pChars.enumerated() where i >= 4 { id2p[i] = c }
         self.idToPhoneme = id2p
-        self.scale = 1.0 / sqrtf(128.0)
 
         guard let st = try? SafetensorsLoader(url: weightsURL) else { return nil }
         do {
@@ -131,9 +130,9 @@ public final class BARTG2P {
     /// Predict IPA phonemes for a lowercased word.
     public func predict(_ word: String) -> String? {
         let gIds = word.compactMap { graphemeToId[$0] }
-        guard !gIds.isEmpty, gIds.count + 2 <= maxPos else { return nil }
+        guard !gIds.isEmpty, gIds.count + 2 <= Self.maxPos else { return nil }
 
-        let encIn = [bosId] + gIds + [eosId]
+        let encIn = [Self.bosId] + gIds + [Self.eosId]
         let encOut = encode(encIn)
         let pIds = decode(encOut: encOut, encLen: encIn.count)
         guard !pIds.isEmpty else { return nil }
@@ -142,30 +141,45 @@ public final class BARTG2P {
         return chars.isEmpty ? nil : String(chars)
     }
 
+    // MARK: - Shared Helpers
+
+    /// Token + positional embedding lookup.
+    private func embed(_ ids: [Int], posW: [Float], lnW: [Float], lnB: [Float]) -> [Float] {
+        let d = Self.d
+        let n = ids.count
+        var x = [Float](repeating: 0, count: n * d)
+        for i in 0..<n {
+            let tOff = ids[i] * d
+            let pOff = (i + Self.posOff) * d
+            sharedW.withUnsafeBufferPointer { sw in
+                posW.withUnsafeBufferPointer { pw in
+                    x.withUnsafeMutableBufferPointer { xb in
+                        vDSP_vadd(sw.baseAddress! + tOff, 1,
+                                  pw.baseAddress! + pOff, 1,
+                                  xb.baseAddress! + i * d, 1,
+                                  vDSP_Length(d))
+                    }
+                }
+            }
+        }
+        layerNorm(&x, rows: n, w: lnW, b: lnB)
+        return x
+    }
+
     // MARK: - Encoder
 
     private func encode(_ ids: [Int]) -> [Float] {
         let n = ids.count
+        let x = embed(ids, posW: ePosW, lnW: eLnEW, lnB: eLnEB)
 
-        // Token + positional embeddings
-        var x = [Float](repeating: 0, count: n * d)
-        for i in 0..<n {
-            let tOff = ids[i] * d
-            let pOff = (i + posOff) * d
-            for j in 0..<d { x[i * d + j] = sharedW[tOff + j] + ePosW[pOff + j] }
-        }
-        layerNorm(&x, rows: n, w: eLnEW, b: eLnEB)
-
-        // Self-attention
         var a = fullAttn(x, ctx: x, n: n, cLen: n, mask: nil,
                          qW: eQW, qB: eQB, kW: eKW, kB: eKB,
                          vW: eVW, vB: eVB, oW: eOW, oB: eOB)
-        addInPlace(&a, x)
+        vDSP_vadd(a, 1, x, 1, &a, 1, vDSP_Length(a.count))
         layerNorm(&a, rows: n, w: eSaLnW, b: eSaLnB)
 
-        // FFN
         var f = ffn(a, rows: n, w1: eF1W, b1: eF1B, w2: eF2W, b2: eF2B)
-        addInPlace(&f, a)
+        vDSP_vadd(f, 1, a, 1, &f, 1, vDSP_Length(f.count))
         layerNorm(&f, rows: n, w: eFLnW, b: eFLnB)
 
         return f
@@ -174,65 +188,75 @@ public final class BARTG2P {
     // MARK: - Decoder (greedy)
 
     private func decode(encOut: [Float], encLen: Int) -> [Int] {
-        // Pre-compute cross-attention K, V from encoder output.
+        let d = Self.d
         let cK = linear(encOut, rows: encLen, wt: dCKW, b: dCKB, outD: d)
         let cV = linear(encOut, rows: encLen, wt: dCVW, b: dCVB, outD: d)
 
-        var tokens = [bosId]
-        let maxSteps = min(50, maxPos - 2)
+        var tokens = [Self.bosId]
+        let maxSteps = min(50, Self.maxPos - 2)
+
+        // Pre-allocate causal mask at maximum size.
+        var maskBuf = [Float](repeating: -1e9, count: maxSteps * maxSteps)
+        for i in 0..<maxSteps {
+            for j in 0...i { maskBuf[i * maxSteps + j] = 0 }
+        }
 
         for _ in 0..<maxSteps {
             let n = tokens.count
+            let x = embed(tokens, posW: dPosW, lnW: dLnEW, lnB: dLnEB)
 
-            // Token + positional embeddings
-            var x = [Float](repeating: 0, count: n * d)
-            for i in 0..<n {
-                let tOff = tokens[i] * d
-                let pOff = (i + posOff) * d
-                for j in 0..<d { x[i * d + j] = sharedW[tOff + j] + dPosW[pOff + j] }
+            // Extract n*n causal mask from pre-allocated buffer.
+            var mask = [Float](repeating: 0, count: n * n)
+            mask.withUnsafeMutableBufferPointer { dst in
+                maskBuf.withUnsafeBufferPointer { src in
+                    for i in 0..<n {
+                        memcpy(dst.baseAddress! + i * n,
+                               src.baseAddress! + i * maxSteps,
+                               n * MemoryLayout<Float>.size)
+                    }
+                }
             }
-            layerNorm(&x, rows: n, w: dLnEW, b: dLnEB)
 
-            // Causal self-attention
-            let mask = causalMask(n)
             var sa = fullAttn(x, ctx: x, n: n, cLen: n, mask: mask,
                               qW: dSQW, qB: dSQB, kW: dSKW, kB: dSKB,
                               vW: dSVW, vB: dSVB, oW: dSOW, oB: dSOB)
-            addInPlace(&sa, x)
+            vDSP_vadd(sa, 1, x, 1, &sa, 1, vDSP_Length(sa.count))
             layerNorm(&sa, rows: n, w: dSaLnW, b: dSaLnB)
 
-            // Cross-attention (Q from decoder state, K/V from encoder)
             let cQ = linear(sa, rows: n, wt: dCQW, b: dCQB, outD: d)
             var ca = sdpa(q: cQ, k: cK, v: cV, qLen: n, kvLen: encLen, mask: nil)
             ca = linear(ca, rows: n, wt: dCOW, b: dCOB, outD: d)
-            addInPlace(&ca, sa)
+            vDSP_vadd(ca, 1, sa, 1, &ca, 1, vDSP_Length(ca.count))
             layerNorm(&ca, rows: n, w: dCaLnW, b: dCaLnB)
 
-            // FFN
             var f = ffn(ca, rows: n, w1: dF1W, b1: dF1B, w2: dF2W, b2: dF2B)
-            addInPlace(&f, ca)
+            vDSP_vadd(f, 1, ca, 1, &f, 1, vDSP_Length(f.count))
             layerNorm(&f, rows: n, w: dFLnW, b: dFLnB)
 
-            // LM head on last position: logits = h @ shared^T + bias
+            // LM head on last position
             let lastOff = (n - 1) * d
-            var logits = [Float](repeating: 0, count: vocabSize)
-            for v in 0..<vocabSize {
-                var dot: Float = 0
-                for j in 0..<d { dot += f[lastOff + j] * sharedW[v * d + j] }
-                logits[v] = dot + logitBias[v]
+            var logits = [Float](repeating: 0, count: Self.vocabSize)
+            f.withUnsafeBufferPointer { fBuf in
+                sharedW.withUnsafeBufferPointer { sw in
+                    logits.withUnsafeMutableBufferPointer { lb in
+                        cblas_sgemv(CblasRowMajor, CblasNoTrans,
+                                    Int32(Self.vocabSize), Int32(d),
+                                    1.0, sw.baseAddress!, Int32(d),
+                                    fBuf.baseAddress! + lastOff, 1,
+                                    0.0, lb.baseAddress!, 1)
+                    }
+                }
             }
+            vDSP_vadd(logits, 1, logitBias, 1, &logits, 1, vDSP_Length(Self.vocabSize))
 
-            // Greedy argmax
-            var best = 0
-            var bestVal = logits[0]
-            for i in 1..<vocabSize {
-                if logits[i] > bestVal { bestVal = logits[i]; best = i }
-            }
-            if best == eosId { break }
+            var bestVal: Float = 0
+            var bestIdx: vDSP_Length = 0
+            vDSP_maxvi(logits, 1, &bestVal, &bestIdx, vDSP_Length(Self.vocabSize))
+            let best = Int(bestIdx)
+            if best == Self.eosId { break }
             tokens.append(best)
         }
 
-        // Drop seed BOS and any generated special tokens (BOS/EOS/PAD).
         return tokens.dropFirst().filter { $0 >= 4 }
     }
 
@@ -241,7 +265,7 @@ public final class BARTG2P {
     /// output = input @ W^T + bias.  W is [outD, inD] row-major.
     private func linear(_ input: [Float], rows: Int, wt: [Float], b: [Float],
                         outD: Int, inD: Int? = nil) -> [Float] {
-        let k = inD ?? d
+        let k = inD ?? Self.d
         var out = [Float](repeating: 0, count: rows * outD)
         input.withUnsafeBufferPointer { inBuf in
             wt.withUnsafeBufferPointer { wBuf in
@@ -255,8 +279,15 @@ public final class BARTG2P {
                 }
             }
         }
-        for r in 0..<rows {
-            for j in 0..<outD { out[r * outD + j] += b[j] }
+        b.withUnsafeBufferPointer { bBuf in
+            out.withUnsafeMutableBufferPointer { oBuf in
+                for r in 0..<rows {
+                    vDSP_vadd(oBuf.baseAddress! + r * outD, 1,
+                              bBuf.baseAddress!, 1,
+                              oBuf.baseAddress! + r * outD, 1,
+                              vDSP_Length(outD))
+                }
+            }
         }
         return out
     }
@@ -267,6 +298,7 @@ public final class BARTG2P {
         qW: [Float], qB: [Float], kW: [Float], kB: [Float],
         vW: [Float], vB: [Float], oW: [Float], oB: [Float]
     ) -> [Float] {
+        let d = Self.d
         let q = linear(x, rows: n, wt: qW, b: qB, outD: d)
         let k = linear(ctx, rows: cLen, wt: kW, b: kB, outD: d)
         let v = linear(ctx, rows: cLen, wt: vW, b: vB, outD: d)
@@ -277,7 +309,7 @@ public final class BARTG2P {
     /// Scaled dot-product attention.
     private func sdpa(q: [Float], k: [Float], v: [Float],
                       qLen: Int, kvLen: Int, mask: [Float]?) -> [Float] {
-        // scores = Q @ K^T * scale  -> [qLen, kvLen]
+        let d = Self.d
         var scores = [Float](repeating: 0, count: qLen * kvLen)
         q.withUnsafeBufferPointer { qBuf in
             k.withUnsafeBufferPointer { kBuf in
@@ -285,7 +317,7 @@ public final class BARTG2P {
                     cblas_sgemm(
                         CblasRowMajor, CblasNoTrans, CblasTrans,
                         Int32(qLen), Int32(kvLen), Int32(d),
-                        scale, qBuf.baseAddress!, Int32(d),
+                        Self.scale, qBuf.baseAddress!, Int32(d),
                         kBuf.baseAddress!, Int32(d),
                         0.0, sBuf.baseAddress!, Int32(kvLen))
                 }
@@ -293,23 +325,28 @@ public final class BARTG2P {
         }
 
         if let mask {
-            for i in 0..<scores.count { scores[i] += mask[i] }
+            vDSP_vadd(scores, 1, mask, 1, &scores, 1, vDSP_Length(scores.count))
         }
 
         // Softmax per row
-        for r in 0..<qLen {
-            let off = r * kvLen
-            var maxV: Float = scores[off]
-            for j in 1..<kvLen { if scores[off + j] > maxV { maxV = scores[off + j] } }
-            var sum: Float = 0
-            for j in 0..<kvLen {
-                scores[off + j] = expf(scores[off + j] - maxV)
-                sum += scores[off + j]
+        scores.withUnsafeMutableBufferPointer { sBuf in
+            for r in 0..<qLen {
+                let row = sBuf.baseAddress! + r * kvLen
+                let len = vDSP_Length(kvLen)
+                var maxV: Float = 0
+                vDSP_maxv(row, 1, &maxV, len)
+                var negMax = -maxV
+                vDSP_vsadd(row, 1, &negMax, row, 1, len)
+                // exp each element
+                var count = Int32(kvLen)
+                vvexpf(row, row, &count)
+                var sum: Float = 0
+                vDSP_sve(row, 1, &sum, len)
+                if sum > 0 { vDSP_vsdiv(row, 1, &sum, row, 1, len) }
             }
-            if sum > 0 { for j in 0..<kvLen { scores[off + j] /= sum } }
         }
 
-        // output = weights @ V  -> [qLen, d]
+        // output = weights @ V
         var out = [Float](repeating: 0, count: qLen * d)
         scores.withUnsafeBufferPointer { sBuf in
             v.withUnsafeBufferPointer { vBuf in
@@ -329,42 +366,37 @@ public final class BARTG2P {
     /// FFN: gelu(x @ W1^T + b1) @ W2^T + b2
     private func ffn(_ input: [Float], rows: Int,
                      w1: [Float], b1: [Float], w2: [Float], b2: [Float]) -> [Float] {
-        var h = linear(input, rows: rows, wt: w1, b: b1, outD: ffnDim)
+        var h = linear(input, rows: rows, wt: w1, b: b1, outD: Self.ffnDim)
         let invSqrt2: Float = 1.0 / sqrtf(2.0)
         for i in 0..<h.count { h[i] = h[i] * 0.5 * (1.0 + erff(h[i] * invSqrt2)) }
-        return linear(h, rows: rows, wt: w2, b: b2, outD: d, inD: ffnDim)
+        return linear(h, rows: rows, wt: w2, b: b2, outD: Self.d, inD: Self.ffnDim)
     }
 
     /// Layer normalization over last dimension (d_model).
     private func layerNorm(_ x: inout [Float], rows: Int, w: [Float], b: [Float]) {
+        let d = Self.d
         let eps: Float = 1e-5
-        for r in 0..<rows {
-            let off = r * d
-            var mean: Float = 0
-            for j in 0..<d { mean += x[off + j] }
-            mean /= Float(d)
-            var variance: Float = 0
-            for j in 0..<d {
-                let diff = x[off + j] - mean
-                variance += diff * diff
+        x.withUnsafeMutableBufferPointer { xBuf in
+            w.withUnsafeBufferPointer { wBuf in
+                b.withUnsafeBufferPointer { bBuf in
+                    for r in 0..<rows {
+                        let row = xBuf.baseAddress! + r * d
+                        let len = vDSP_Length(d)
+                        var mean: Float = 0
+                        vDSP_meanv(row, 1, &mean, len)
+                        var negMean = -mean
+                        vDSP_vsadd(row, 1, &negMean, row, 1, len)
+                        var variance: Float = 0
+                        vDSP_svesq(row, 1, &variance, len)
+                        variance /= Float(d)
+                        var inv = 1.0 / sqrtf(variance + eps)
+                        vDSP_vsmul(row, 1, &inv, row, 1, len)
+                        // x = x * w + b
+                        vDSP_vma(row, 1, wBuf.baseAddress!, 1,
+                                 bBuf.baseAddress!, 1, row, 1, len)
+                    }
+                }
             }
-            variance /= Float(d)
-            let inv = 1.0 / sqrtf(variance + eps)
-            for j in 0..<d { x[off + j] = (x[off + j] - mean) * inv * w[j] + b[j] }
         }
-    }
-
-    /// Element-wise a += b.
-    private func addInPlace(_ a: inout [Float], _ b: [Float]) {
-        for i in 0..<a.count { a[i] += b[i] }
-    }
-
-    /// Lower-triangular causal mask: 0 for attend, -1e9 for block.
-    private func causalMask(_ n: Int) -> [Float] {
-        var m = [Float](repeating: 0, count: n * n)
-        for i in 0..<n {
-            for j in (i + 1)..<n { m[i * n + j] = -1e9 }
-        }
-        return m
     }
 }
