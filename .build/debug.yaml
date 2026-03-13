@@ -1,0 +1,129 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "BARTG2P-arm64-apple-macosx15.0-debug.module": ["<BARTG2P-arm64-apple-macosx15.0-debug.module>"]
+  "BARTG2PTests-arm64-apple-macosx15.0-debug.module": ["<BARTG2PTests-arm64-apple-macosx15.0-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<BARTG2P-arm64-apple-macosx15.0-debug.module>"]
+  "swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.module": ["<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.module>"]
+  "swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test": ["<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test>"]
+  "test": ["<BARTG2P-arm64-apple-macosx15.0-debug.module>","<BARTG2PTests-arm64-apple-macosx15.0-debug.module>","<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test>"]
+default: "main"
+nodes:
+  "/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/jud/Projects/swift-bart-g2p/Tests/BARTG2PTests/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/BARTG2P.swift","/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/BARTG2PError.swift","/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/SafetensorsLoader.swift","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/DerivedSources/resource_bundle_accessor.swift"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/sources"]
+    description: "Write auxiliary file /Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/sources"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jud/Projects/swift-bart-g2p/Tests/BARTG2PTests/BARTG2PTests.swift"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/sources"]
+    description: "Write auxiliary file /Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/sources"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.derived/runner.swift":
+    tool: test-entry-point-tool
+    inputs: []
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.derived/runner.swift"]
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2P.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2PError.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/SafetensorsLoader.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/resource_bundle_accessor.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/BARTG2PTests.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/runner.swift.o"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.product/Objects.LinkFileList"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p.safetensors":
+    tool: copy-tool
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/Resources/bart_g2p.safetensors"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p.safetensors"]
+    description: "Copying /Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/Resources/bart_g2p.safetensors"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p_config.json":
+    tool: copy-tool
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/Resources/bart_g2p_config.json"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p_config.json"]
+    description: "Copying /Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/Resources/bart_g2p_config.json"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.derived/runner.swift"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/sources"]
+    description: "Write auxiliary file /Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/sources"
+
+  "<BARTG2P-arm64-apple-macosx15.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2P.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2PError.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/SafetensorsLoader.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/resource_bundle_accessor.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2P.swiftmodule"]
+    outputs: ["<BARTG2P-arm64-apple-macosx15.0-debug.module>"]
+
+  "<BARTG2PTests-arm64-apple-macosx15.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/BARTG2PTests.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2PTests.swiftmodule"]
+    outputs: ["<BARTG2PTests-arm64-apple-macosx15.0-debug.module>"]
+
+  "<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.module>":
+    tool: phony
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/runner.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/swift_bart_g2pPackageTests.swiftmodule"]
+    outputs: ["<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.module>"]
+
+  "<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test>":
+    tool: phony
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.xctest/Contents/MacOS/swift-bart-g2pPackageTests"]
+    outputs: ["<swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test>"]
+
+  "BARTG2P-arm64-apple-macosx15.0-debug.module-resources":
+    tool: phony
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p.safetensors","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2p_BARTG2P.bundle/bart_g2p_config.json"]
+    outputs: ["<BARTG2P-arm64-apple-macosx15.0-debug.module-resources>"]
+
+  "C.BARTG2P-arm64-apple-macosx15.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/BARTG2P.swift","/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/BARTG2PError.swift","/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/SafetensorsLoader.swift","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/DerivedSources/resource_bundle_accessor.swift","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","<BARTG2P-arm64-apple-macosx15.0-debug.module-resources>","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/sources"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2P.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2PError.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/SafetensorsLoader.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/resource_bundle_accessor.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2P.swiftmodule"]
+    description: "Compiling Swift Module 'BARTG2P' (4 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","BARTG2P","-emit-dependencies","-emit-module","-emit-module-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2P.swiftmodule","-output-file-map","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/sources","-I","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE","-module-cache-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/include/BARTG2P-Swift.h","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","swift_bart_g2p"]
+
+  "C.BARTG2PTests-arm64-apple-macosx15.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/Tests/BARTG2PTests/BARTG2PTests.swift","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2P.swiftmodule","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/sources"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/BARTG2PTests.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2PTests.swiftmodule"]
+    description: "Compiling Swift Module 'BARTG2PTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","BARTG2PTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2PTests.swiftmodule","-output-file-map","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/sources","-I","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","swift_bart_g2p"]
+
+  "C.swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.module":
+    tool: shell
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.derived/runner.swift","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2PTests.swiftmodule","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/sources"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/runner.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/swift_bart_g2pPackageTests.swiftmodule"]
+    description: "Compiling Swift Module 'swift_bart_g2pPackageTests' (1 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","swift_bart_g2pPackageTests","-emit-dependencies","-emit-module","-emit-module-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/swift_bart_g2pPackageTests.swiftmodule","-output-file-map","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/sources","-I","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx14.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-Xfrontend","-enable-cross-import-overlays","-j12","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/include/swift-bart-g2pPackageTests-Swift.h","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","swift_bart_g2p"]
+
+  "C.swift-bart-g2pPackageTests-arm64-apple-macosx15.0-debug.test":
+    tool: shell
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2P.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/BARTG2PError.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/SafetensorsLoader.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/resource_bundle_accessor.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2PTests.build/BARTG2PTests.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift_bart_g2pPackageTests.build/runner.swift.o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.product/Objects.LinkFileList"]
+    outputs: ["/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.xctest/Contents/MacOS/swift-bart-g2pPackageTests"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.xctest/Contents/MacOS/swift-bart-g2pPackageTests"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug","-o","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.xctest/Contents/MacOS/swift-bart-g2pPackageTests","-module-name","swift_bart_g2pPackageTests","-Xlinker","-no_warn_duplicate_libraries","-Xlinker","-bundle","-Xlinker","-rpath","-Xlinker","@loader_path/../../../","@/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/swift-bart-g2pPackageTests.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx14.0","-Xlinker","-add_ast_path","-Xlinker","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2P.swiftmodule","-Xlinker","-add_ast_path","-Xlinker","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/BARTG2PTests.swiftmodule","-Xlinker","-add_ast_path","-Xlinker","/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/Modules/swift_bart_g2pPackageTests.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/jud/Projects/swift-bart-g2p/Sources/BARTG2P/","/Users/jud/Projects/swift-bart-g2p/Tests/BARTG2PTests/","/Users/jud/Projects/swift-bart-g2p/Package.swift","/Users/jud/Projects/swift-bart-g2p/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

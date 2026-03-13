@@ -1,0 +1,3 @@
+module BARTG2P {
+    header "/Users/jud/Projects/swift-bart-g2p/.build/arm64-apple-macosx/debug/BARTG2P.build/include/BARTG2P-Swift.h"
+}
