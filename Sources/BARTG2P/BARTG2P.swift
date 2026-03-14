@@ -22,6 +22,10 @@ public final class BARTG2P {
     /// Phoneme trigram LM for beam rescoring (lazy-loaded).
     private var trigramLM: PhonemeTrigramLM?
 
+    /// Neural reranker for candidate rescoring (lazy-loaded).
+    private var reranker: NeuralReranker?
+    private var rerankerChecked = false
+
     // All weights stored as flat [Float] arrays.
     // Convention: "W" = weight matrix [outDim, inDim], "B" = bias [outDim].
     private let sharedW: [Float]       // [63, 128]
@@ -137,7 +141,7 @@ public final class BARTG2P {
     ///   - lengthPenalty: Exponent for length normalization in beam search (0 = none, 1 = full).
     ///   - rescoreLM: When true, uses beam=8 and rescores with a phoneme trigram LM for better accuracy.
     public func predict(_ word: String, beamWidth: Int = 1, lengthPenalty: Float = 0.0,
-                        rescoreLM: Bool = false) -> String? {
+                        rescoreLM: Bool = true) -> String? {
         if rescoreLM {
             return predictWithLMRescore(word)
         }
@@ -165,7 +169,17 @@ public final class BARTG2P {
         return chars.isEmpty ? nil : String(chars)
     }
 
-    /// Predict using beam search + trigram LM rescoring for best accuracy.
+    /// Return trigram LM log probability for a phoneme string.
+    public func trigramScore(_ ipa: String) -> Float {
+        if trigramLM == nil {
+            if let url = Bundle.module.url(forResource: "phoneme_trigram", withExtension: "tsv") {
+                trigramLM = PhonemeTrigramLM(url: url)
+            }
+        }
+        return trigramLM?.logProb(ipa) ?? 0
+    }
+
+    /// Predict using beam search + neural reranker (or trigram LM fallback).
     private func predictWithLMRescore(_ word: String) -> String? {
         // Lazy-load trigram LM
         if trigramLM == nil {
@@ -174,10 +188,36 @@ public final class BARTG2P {
             }
         }
 
-        let candidates = predictNBestScored(word, beamWidth: 8)
+        // Lazy-load neural reranker (one attempt)
+        if !rerankerChecked {
+            rerankerChecked = true
+            if let url = Bundle.module.url(forResource: "reranker", withExtension: "safetensors") {
+                reranker = NeuralReranker(url: url)
+            }
+        }
+
+        let beamW = reranker != nil ? 8 : 4
+        let candidates = predictNBestScored(word, beamWidth: beamW)
         guard !candidates.isEmpty else { return nil }
         guard let lm = trigramLM else { return candidates[0].text }
 
+        // Neural reranker path
+        if let rr = reranker {
+            var bestScore: Float = -.infinity
+            var bestText: String = candidates[0].text
+            for (text, modelLP) in candidates {
+                let trigramLP = lm.logProb(text)
+                let score = rr.score(word: word, candidate: text,
+                                     modelLogProb: modelLP, trigramLogProb: trigramLP)
+                if score > bestScore {
+                    bestScore = score
+                    bestText = text
+                }
+            }
+            return bestText
+        }
+
+        // Fallback: trigram-only rescoring
         let lambda: Float = 0.35
         var bestScore: Float = -.infinity
         var bestText: String = candidates[0].text
