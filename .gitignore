@@ -1,2 +1,9 @@
 .build/
 .swiftpm/
+.claude/
+.venv/
+data/
+data_cmudict_full_ipa.tsv
+run.log
+results.tsv
+FINDINGS.md
