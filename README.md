@@ -21,7 +21,9 @@ dependencies: [
 import BARTG2P
 
 let g2p = BARTG2P.fromBundle()!
-let phonemes = g2p.predict("kubernetes")  // "kˈubɜnɛtiz"
+
+g2p.predict("kubernetes")                     // "kˌubəɹnˈits" (~1.7ms, beam search + trigram LM)
+g2p.predict("kubernetes", rescoreLM: false)   // greedy only (~0.6ms, slightly less accurate)
 ```
 
 ## architecture
@@ -34,7 +36,18 @@ graph LR
     D --> E[IPA phonemes]
 ```
 
-single encoder layer, single decoder layer. greedy decoding -- no beam search. all matrix ops go through `cblas_sgemm` / `vDSP`. weights loaded from safetensors at init.
+single encoder layer, single decoder layer. KV-cached autoregressive decoding with optional beam search + phoneme trigram LM rescoring. all matrix ops go through `cblas_sgemm` / `vDSP`. weights loaded from safetensors at init.
+
+## accuracy
+
+on 1000-word CMUdict sample:
+
+| mode | exact match | loose match | PER |
+|------|-------------|-------------|-----|
+| greedy (default) | 35.7% | 49.5% | 12.8% |
+| rescoreLM | 37.5% | 52.1% | 12.1% |
+
+"loose" normalizes stress markers and allophones before comparison. PER = phoneme error rate.
 
 ## model
 
