@@ -15,6 +15,11 @@ let package = Package(
                 .process("Resources"),
             ]
         ),
+        .executableTarget(
+            name: "GenerateRerankerData",
+            dependencies: ["BARTG2P"],
+            path: "Sources/GenerateRerankerData"
+        ),
         .testTarget(
             name: "BARTG2PTests",
             dependencies: ["BARTG2P"],
