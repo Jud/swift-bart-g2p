@@ -67,7 +67,7 @@ struct BARTG2PTests {
         ]
         var failures = 0
         for (word, ref) in expected {
-            let result = bart.predict(word)
+            let result = bart.predict(word, rescoreLM: false)
             if result != ref {
                 failures += 1
                 Issue.record("BART(\(word)): got \(result ?? "nil"), expected \(ref)")
@@ -101,7 +101,7 @@ struct BARTG2PTests {
     @Test("Dictionary accuracy: 1000-word CMUdict sample (greedy)")
     func dictAccuracyGreedy() throws {
         let bart = try #require(BARTG2P.fromBundle())
-        let r = measureDictAccuracy(bart: bart) { bart, word in bart.predict(word) }
+        let r = measureDictAccuracy(bart: bart) { bart, word in bart.predict(word, rescoreLM: false) }
         let exactPct = Double(r.exact) / Double(r.total) * 100.0
         let loosePct = Double(r.loose) / Double(r.total) * 100.0
         print("dict_accuracy_greedy: exact=\(r.exact)/\(r.total) (\(String(format: "%.1f", exactPct))%) loose=\(r.loose)/\(r.total) (\(String(format: "%.1f", loosePct))%) PER=\(String(format: "%.1f", r.avgPER * 100))%")
@@ -125,7 +125,7 @@ struct BARTG2PTests {
             let word = String(parts[0])
             let expected = String(parts[1])
             total += 1
-            guard let result = bart.predict(word) else {
+            guard let result = bart.predict(word, rescoreLM: false) else {
                 loosePER += 1.0; dialectPER += 1.0; continue
             }
             if result == expected { exact += 1; loose += 1; dialect += 1 }
@@ -158,7 +158,7 @@ struct BARTG2PTests {
             total += 1
 
             // Greedy
-            if let g = bart.predict(word), normalize(g) == normalize(expected) {
+            if let g = bart.predict(word, rescoreLM: false), normalize(g) == normalize(expected) {
                 greedyLoose += 1
             }
 
@@ -182,8 +182,8 @@ struct BARTG2PTests {
         let r = measureDictAccuracy(bart: bart) { bart, word in bart.predict(word, rescoreLM: true) }
         let loosePct = Double(r.loose) / Double(r.total) * 100.0
         print("dict_accuracy_rescoreLM: exact=\(r.exact)/\(r.total) (\(String(format: "%.1f", Double(r.exact)/Double(r.total)*100))%) loose=\(r.loose)/\(r.total) (\(String(format: "%.1f", loosePct))%) PER=\(String(format: "%.1f", r.avgPER * 100))%")
-        #expect(r.loose >= 510, "RescoreLM loose accuracy regressed below 51%")
-        #expect(r.avgPER < 0.13, "RescoreLM PER regressed above 13%")
+        #expect(r.loose >= 550, "RescoreLM loose accuracy regressed below 55%")
+        #expect(r.avgPER < 0.12, "RescoreLM PER regressed above 12%")
     }
 
     @Test("Benchmark: inference throughput")
@@ -204,14 +204,14 @@ struct BARTG2PTests {
         ]
 
         // Warmup
-        for word in words { _ = bart.predict(word) }
+        for word in words { _ = bart.predict(word, rescoreLM: false) }
 
         // Timed run (3 iterations for stability)
         let iterations = 3
         let start = CFAbsoluteTimeGetCurrent()
         for _ in 0..<iterations {
             for word in words {
-                _ = bart.predict(word)
+                _ = bart.predict(word, rescoreLM: false)
             }
         }
         let elapsed = CFAbsoluteTimeGetCurrent() - start
@@ -219,7 +219,17 @@ struct BARTG2PTests {
         let avgMs = (elapsed / Double(totalPredictions)) * 1000.0
         let throughput = Double(totalPredictions) / elapsed
 
-        print("perf: avg_ms=\(String(format: "%.3f", avgMs)) throughput=\(String(format: "%.1f", throughput))words/s total=\(String(format: "%.3f", elapsed))s (\(totalPredictions) predictions)")
+        print("perf_greedy: avg_ms=\(String(format: "%.3f", avgMs)) throughput=\(String(format: "%.1f", throughput))words/s")
+
+        // RescoreLM timing
+        for word in words { _ = bart.predict(word, rescoreLM: true) } // warmup
+        let startLM = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<iterations {
+            for word in words { _ = bart.predict(word, rescoreLM: true) }
+        }
+        let elapsedLM = CFAbsoluteTimeGetCurrent() - startLM
+        let avgMsLM = (elapsedLM / Double(totalPredictions)) * 1000.0
+        print("perf_rescoreLM: avg_ms=\(String(format: "%.3f", avgMsLM)) ratio=\(String(format: "%.1f", avgMsLM / avgMs))x")
     }
 }
 
