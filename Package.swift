@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "swift-bart-g2p",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v18)],
     products: [
         .library(name: "BARTG2P", targets: ["BARTG2P"]),
     ],
