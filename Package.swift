@@ -18,7 +18,10 @@ let package = Package(
         .testTarget(
             name: "BARTG2PTests",
             dependencies: ["BARTG2P"],
-            path: "Tests/BARTG2PTests"
+            path: "Tests/BARTG2PTests",
+            resources: [
+                .copy("cmudict_ref_1000.tsv"),
+            ]
         ),
     ]
 )

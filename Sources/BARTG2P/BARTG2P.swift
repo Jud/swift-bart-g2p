@@ -19,6 +19,9 @@ public final class BARTG2P {
     private let graphemeToId: [Character: Int]
     private let idToPhoneme: [Int: Character]
 
+    /// Phoneme trigram LM for beam rescoring (lazy-loaded).
+    private var trigramLM: PhonemeTrigramLM?
+
     // All weights stored as flat [Float] arrays.
     // Convention: "W" = weight matrix [outDim, inDim], "B" = bias [outDim].
     private let sharedW: [Float]       // [63, 128]
@@ -128,17 +131,92 @@ public final class BARTG2P {
     }
 
     /// Predict IPA phonemes for a lowercased word.
-    public func predict(_ word: String) -> String? {
+    /// - Parameters:
+    ///   - word: Input word (lowercased).
+    ///   - beamWidth: Number of beams. 1 = greedy (default), >1 = beam search.
+    ///   - lengthPenalty: Exponent for length normalization in beam search (0 = none, 1 = full).
+    ///   - rescoreLM: When true, uses beam=8 and rescores with a phoneme trigram LM for better accuracy.
+    public func predict(_ word: String, beamWidth: Int = 1, lengthPenalty: Float = 0.0,
+                        rescoreLM: Bool = false) -> String? {
+        if rescoreLM {
+            return predictWithLMRescore(word)
+        }
+
         let gIds = word.compactMap { graphemeToId[$0] }
         guard !gIds.isEmpty, gIds.count + 2 <= Self.maxPos else { return nil }
 
         let encIn = [Self.bosId] + gIds + [Self.eosId]
         let encOut = encode(encIn)
-        let pIds = decode(encOut: encOut, encLen: encIn.count)
+        let d = Self.d
+        let cK = linear(encOut, rows: encIn.count, wt: dCKW, b: dCKB, outD: d)
+        let cV = linear(encOut, rows: encIn.count, wt: dCVW, b: dCVB, outD: d)
+        let pIds: [Int]
+        if beamWidth <= 1 {
+            pIds = decode(cK: cK, cV: cV, encLen: encIn.count)
+        } else {
+            guard let best = beamSearchCore(cK: cK, cV: cV, encLen: encIn.count,
+                                            beamWidth: beamWidth, lengthPenalty: lengthPenalty).first
+            else { return nil }
+            pIds = Array(best.tokens.dropFirst().filter { $0 >= 4 && $0 != Self.eosId })
+        }
         guard !pIds.isEmpty else { return nil }
 
         let chars = pIds.compactMap { idToPhoneme[$0] }
         return chars.isEmpty ? nil : String(chars)
+    }
+
+    /// Predict using beam search + trigram LM rescoring for best accuracy.
+    private func predictWithLMRescore(_ word: String) -> String? {
+        // Lazy-load trigram LM
+        if trigramLM == nil {
+            if let url = Bundle.module.url(forResource: "phoneme_trigram", withExtension: "tsv") {
+                trigramLM = PhonemeTrigramLM(url: url)
+            }
+        }
+
+        let candidates = predictNBestScored(word, beamWidth: 8)
+        guard !candidates.isEmpty else { return nil }
+        guard let lm = trigramLM else { return candidates[0].text }
+
+        let lambda: Float = 0.35
+        var bestScore: Float = -.infinity
+        var bestText: String = candidates[0].text
+        for (text, modelLP) in candidates {
+            let combined = modelLP + lambda * lm.logProb(text)
+            if combined > bestScore {
+                bestScore = combined
+                bestText = text
+            }
+        }
+        return bestText
+    }
+
+    /// Return all beam candidates sorted by score (best first).
+    public func predictNBest(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0) -> [String] {
+        return predictNBestScored(word, beamWidth: beamWidth, lengthPenalty: lengthPenalty)
+            .map { $0.text }
+    }
+
+    /// Return all beam candidates with their log-probabilities, sorted best-first.
+    public func predictNBestScored(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0) -> [(text: String, logProb: Float)] {
+        let gIds = word.compactMap { graphemeToId[$0] }
+        guard !gIds.isEmpty, gIds.count + 2 <= Self.maxPos else { return [] }
+
+        let encIn = [Self.bosId] + gIds + [Self.eosId]
+        let encOut = encode(encIn)
+        let d = Self.d
+        let cK = linear(encOut, rows: encIn.count, wt: dCKW, b: dCKB, outD: d)
+        let cV = linear(encOut, rows: encIn.count, wt: dCVW, b: dCVB, outD: d)
+        let beams = beamSearchCore(cK: cK, cV: cV, encLen: encIn.count,
+                                   beamWidth: beamWidth, lengthPenalty: lengthPenalty)
+
+        return beams.compactMap { beam in
+            let chars = beam.tokens.dropFirst()
+                .filter { $0 >= 4 && $0 != Self.eosId }
+                .compactMap { idToPhoneme[$0] }
+            guard !chars.isEmpty else { return nil }
+            return (text: String(chars), logProb: beam.logProb)
+        }
     }
 
     // MARK: - Shared Helpers
@@ -164,6 +242,24 @@ public final class BARTG2P {
         return x
     }
 
+    /// Embed a single token at a given position.
+    private func embedOne(_ id: Int, pos: Int, posW: [Float], lnW: [Float], lnB: [Float]) -> [Float] {
+        let d = Self.d
+        var x = [Float](repeating: 0, count: d)
+        sharedW.withUnsafeBufferPointer { sw in
+            posW.withUnsafeBufferPointer { pw in
+                x.withUnsafeMutableBufferPointer { xb in
+                    vDSP_vadd(sw.baseAddress! + id * d, 1,
+                              pw.baseAddress! + (pos + Self.posOff) * d, 1,
+                              xb.baseAddress!, 1,
+                              vDSP_Length(d))
+                }
+            }
+        }
+        layerNorm(&x, rows: 1, w: lnW, b: lnB)
+        return x
+    }
+
     // MARK: - Encoder
 
     private func encode(_ ids: [Int]) -> [Float] {
@@ -185,52 +281,18 @@ public final class BARTG2P {
 
     // MARK: - Decoder (greedy)
 
-    private func decode(encOut: [Float], encLen: Int) -> [Int] {
-        let d = Self.d
-        let cK = linear(encOut, rows: encLen, wt: dCKW, b: dCKB, outD: d)
-        let cV = linear(encOut, rows: encLen, wt: dCVW, b: dCVB, outD: d)
-
+    private func decode(cK: [Float], cV: [Float], encLen: Int) -> [Int] {
         var tokens = [Self.bosId]
         let maxSteps = min(50, Self.maxPos - 2)
+        var saKCache = [Float]()
+        var saVCache = [Float]()
+        saKCache.reserveCapacity(maxSteps * Self.d)
+        saVCache.reserveCapacity(maxSteps * Self.d)
 
-        for _ in 0..<maxSteps {
-            let n = tokens.count
-            let x = embed(tokens, posW: dPosW, lnW: dLnEW, lnB: dLnEB)
-
-            var mask = [Float](repeating: -1e9, count: n * n)
-            for i in 0..<n { for j in 0...i { mask[i * n + j] = 0 } }
-
-            var sa = fullAttn(x, ctx: x, n: n, cLen: n, mask: mask,
-                              qW: dSQW, qB: dSQB, kW: dSKW, kB: dSKB,
-                              vW: dSVW, vB: dSVB, oW: dSOW, oB: dSOB)
-            vDSP_vadd(sa, 1, x, 1, &sa, 1, vDSP_Length(sa.count))
-            layerNorm(&sa, rows: n, w: dSaLnW, b: dSaLnB)
-
-            let cQ = linear(sa, rows: n, wt: dCQW, b: dCQB, outD: d)
-            var ca = sdpa(q: cQ, k: cK, v: cV, qLen: n, kvLen: encLen, mask: nil)
-            ca = linear(ca, rows: n, wt: dCOW, b: dCOB, outD: d)
-            vDSP_vadd(ca, 1, sa, 1, &ca, 1, vDSP_Length(ca.count))
-            layerNorm(&ca, rows: n, w: dCaLnW, b: dCaLnB)
-
-            var f = ffn(ca, rows: n, w1: dF1W, b1: dF1B, w2: dF2W, b2: dF2B)
-            vDSP_vadd(f, 1, ca, 1, &f, 1, vDSP_Length(f.count))
-            layerNorm(&f, rows: n, w: dFLnW, b: dFLnB)
-
-            // LM head on last position
-            let lastOff = (n - 1) * d
-            var logits = [Float](repeating: 0, count: Self.vocabSize)
-            f.withUnsafeBufferPointer { fBuf in
-                sharedW.withUnsafeBufferPointer { sw in
-                    logits.withUnsafeMutableBufferPointer { lb in
-                        cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                                    Int32(Self.vocabSize), Int32(d),
-                                    1.0, sw.baseAddress!, Int32(d),
-                                    fBuf.baseAddress! + lastOff, 1,
-                                    0.0, lb.baseAddress!, 1)
-                    }
-                }
-            }
-            vDSP_vadd(logits, 1, logitBias, 1, &logits, 1, vDSP_Length(Self.vocabSize))
+        for step in 0..<maxSteps {
+            let logits = decoderStep(token: tokens.last!, pos: step,
+                                     saKCache: &saKCache, saVCache: &saVCache,
+                                     cK: cK, cV: cV, encLen: encLen)
 
             var bestVal: Float = 0
             var bestIdx: vDSP_Length = 0
@@ -241,6 +303,141 @@ public final class BARTG2P {
         }
 
         return tokens.dropFirst().filter { $0 >= 4 }
+    }
+
+    // MARK: - Decoder step helper
+
+    /// Run one decoder step: given a token and position, update KV cache, return logits.
+    private func decoderStep(
+        token: Int, pos: Int,
+        saKCache: inout [Float], saVCache: inout [Float],
+        cK: [Float], cV: [Float], encLen: Int
+    ) -> [Float] {
+        let d = Self.d
+        let x = embedOne(token, pos: pos, posW: dPosW, lnW: dLnEW, lnB: dLnEB)
+
+        let newK = linear(x, rows: 1, wt: dSKW, b: dSKB, outD: d)
+        let newV = linear(x, rows: 1, wt: dSVW, b: dSVB, outD: d)
+        saKCache.append(contentsOf: newK)
+        saVCache.append(contentsOf: newV)
+        let n = saKCache.count / d
+
+        let newQ = linear(x, rows: 1, wt: dSQW, b: dSQB, outD: d)
+        var sa = sdpa(q: newQ, k: saKCache, v: saVCache, qLen: 1, kvLen: n, mask: nil)
+        sa = linear(sa, rows: 1, wt: dSOW, b: dSOB, outD: d)
+        vDSP_vadd(sa, 1, x, 1, &sa, 1, vDSP_Length(d))
+        layerNorm(&sa, rows: 1, w: dSaLnW, b: dSaLnB)
+
+        let cQ = linear(sa, rows: 1, wt: dCQW, b: dCQB, outD: d)
+        var ca = sdpa(q: cQ, k: cK, v: cV, qLen: 1, kvLen: encLen, mask: nil)
+        ca = linear(ca, rows: 1, wt: dCOW, b: dCOB, outD: d)
+        vDSP_vadd(ca, 1, sa, 1, &ca, 1, vDSP_Length(d))
+        layerNorm(&ca, rows: 1, w: dCaLnW, b: dCaLnB)
+
+        var f = ffn(ca, rows: 1, w1: dF1W, b1: dF1B, w2: dF2W, b2: dF2B)
+        vDSP_vadd(f, 1, ca, 1, &f, 1, vDSP_Length(d))
+        layerNorm(&f, rows: 1, w: dFLnW, b: dFLnB)
+
+        var logits = [Float](repeating: 0, count: Self.vocabSize)
+        f.withUnsafeBufferPointer { fBuf in
+            sharedW.withUnsafeBufferPointer { sw in
+                logits.withUnsafeMutableBufferPointer { lb in
+                    cblas_sgemv(CblasRowMajor, CblasNoTrans,
+                                Int32(Self.vocabSize), Int32(d),
+                                1.0, sw.baseAddress!, Int32(d),
+                                fBuf.baseAddress!, 1,
+                                0.0, lb.baseAddress!, 1)
+                }
+            }
+        }
+        vDSP_vadd(logits, 1, logitBias, 1, &logits, 1, vDSP_Length(Self.vocabSize))
+        return logits
+    }
+
+    // MARK: - Decoder (beam search)
+
+    private struct Beam {
+        var tokens: [Int]
+        var logProb: Float
+        var saKCache: [Float]
+        var saVCache: [Float]
+        var finished: Bool
+    }
+
+    /// Core beam search returning all beams sorted best-first by length-normalized score.
+    private func beamSearchCore(cK: [Float], cV: [Float], encLen: Int,
+                                beamWidth: Int, lengthPenalty: Float) -> [Beam] {
+        let maxSteps = min(50, Self.maxPos - 2)
+
+        var beams = [Beam(tokens: [Self.bosId], logProb: 0.0,
+                          saKCache: [], saVCache: [], finished: false)]
+
+        for step in 0..<maxSteps {
+            var candidates: [(tokens: [Int], logProb: Float,
+                              saKCache: [Float], saVCache: [Float])] = []
+
+            for beam in beams where !beam.finished {
+                var kCache = beam.saKCache
+                var vCache = beam.saVCache
+                var logits = decoderStep(token: beam.tokens.last!, pos: step,
+                                         saKCache: &kCache, saVCache: &vCache,
+                                         cK: cK, cV: cV, encLen: encLen)
+                logSoftmax(&logits)
+
+                var indexed = logits.enumerated().map { ($0.offset, $0.element) }
+                indexed.sort { $0.1 > $1.1 }
+                for i in 0..<min(beamWidth, indexed.count) {
+                    let (tokId, tokLogProb) = indexed[i]
+                    guard tokLogProb.isFinite else { continue }
+                    var newTokens = beam.tokens
+                    newTokens.append(tokId)
+                    candidates.append((tokens: newTokens,
+                                       logProb: beam.logProb + tokLogProb,
+                                       saKCache: kCache, saVCache: vCache))
+                }
+            }
+
+            for beam in beams where beam.finished {
+                candidates.append((tokens: beam.tokens, logProb: beam.logProb,
+                                   saKCache: beam.saKCache, saVCache: beam.saVCache))
+            }
+
+            guard !candidates.isEmpty else { break }
+
+            candidates.sort { ($0.logProb / powf(Float($0.tokens.count), lengthPenalty)) > ($1.logProb / powf(Float($1.tokens.count), lengthPenalty)) }
+            let kept = candidates.prefix(beamWidth)
+
+            beams = kept.map { c in
+                Beam(tokens: c.tokens, logProb: c.logProb,
+                     saKCache: c.saKCache, saVCache: c.saVCache,
+                     finished: c.tokens.last == Self.eosId)
+            }
+
+            if beams.allSatisfy({ $0.finished }) { break }
+        }
+
+        return beams.sorted {
+            ($0.logProb / powf(Float($0.tokens.count), lengthPenalty)) >
+            ($1.logProb / powf(Float($1.tokens.count), lengthPenalty))
+        }
+    }
+
+    /// In-place log-softmax over vocabSize logits.
+    private func logSoftmax(_ logits: inout [Float]) {
+        let n = vDSP_Length(Self.vocabSize)
+        var maxV: Float = 0
+        vDSP_maxv(logits, 1, &maxV, n)
+        var negMax = -maxV
+        vDSP_vsadd(logits, 1, &negMax, &logits, 1, n)
+        // Compute sum(exp(shifted)) without destroying shifted values
+        var expBuf = logits
+        var count = Int32(Self.vocabSize)
+        vvexpf(&expBuf, expBuf, &count)
+        var sum: Float = 0
+        vDSP_sve(expBuf, 1, &sum, n)
+        // logSoftmax = shifted - log(sum(exp(shifted)))
+        var negLogSum = -logf(sum)
+        vDSP_vsadd(logits, 1, &negLogSum, &logits, 1, n)
     }
 
     // MARK: - Linear Algebra
@@ -381,5 +578,60 @@ public final class BARTG2P {
                 }
             }
         }
+    }
+}
+
+/// Phoneme trigram language model for rescoring beam candidates.
+/// Trained on CMUdict IPA transcriptions (~117K words).
+struct PhonemeTrigramLM: Sendable {
+    // Flattened trigram: key = 2-char context string, value = dict of next-char counts
+    private let counts: [String: [Character: Int]]
+    private let ctxTotals: [String: Int]
+    private let vocabSize: Int
+
+    init?(url: URL) {
+        guard let data = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        var counts = [String: [Character: Int]]()
+        var ctxTotals = [String: Int]()
+        var V = 42
+
+        for line in data.split(separator: "\n") {
+            if line.hasPrefix("V=") {
+                V = Int(line.dropFirst(2)) ?? 42
+                continue
+            }
+            let parts = line.split(separator: "\t")
+            guard parts.count == 3 else { continue }
+            let ctx = String(parts[0])
+            guard let nxt = parts[1].first, let count = Int(parts[2]) else { continue }
+            counts[ctx, default: [:]][nxt] = count
+            ctxTotals[ctx, default: 0] += count
+        }
+
+        self.counts = counts
+        self.ctxTotals = ctxTotals
+        self.vocabSize = V
+    }
+
+    /// Log-probability of a phoneme sequence under the trigram model.
+    func logProb(_ ipa: String) -> Float {
+        let normalized: [Character] = ipa.compactMap { c -> Character? in
+            switch c {
+            case "ˈ", "ˌ", "ʔ": return nil
+            case "ɾ": return "t"
+            case "ᵊ": return "ə"
+            case "ᵻ": return "ɪ"
+            default: return c
+            }
+        }
+        let chars: [Character] = ["^", "^"] + normalized + ["$"]
+        var lp: Float = 0
+        for i in 0..<chars.count - 2 {
+            let ctx = String([chars[i], chars[i + 1]])
+            let count = counts[ctx]?[chars[i + 2]] ?? 0
+            let ctxTotal = ctxTotals[ctx] ?? 0
+            lp += logf(Float(count + 1) / Float(ctxTotal + vocabSize))
+        }
+        return lp
     }
 }
