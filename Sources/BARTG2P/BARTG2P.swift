@@ -179,7 +179,7 @@ public final class BARTG2P {
         return trigramLM?.logProb(ipa) ?? 0
     }
 
-    /// Predict using beam search + neural reranker (or trigram LM fallback).
+    /// Predict using diverse beam search + MBR consensus + neural reranker (or trigram LM fallback).
     private func predictWithLMRescore(_ word: String) -> String? {
         // Lazy-load trigram LM
         if trigramLM == nil {
@@ -197,18 +197,43 @@ public final class BARTG2P {
         }
 
         let beamW = reranker != nil ? 8 : 4
-        let candidates = predictNBestScored(word, beamWidth: beamW)
+        let candidates = predictNBestScored(word, beamWidth: beamW, diversityPenalty: 1.5)
         guard !candidates.isEmpty else { return nil }
         guard let lm = trigramLM else { return candidates[0].text }
 
-        // Neural reranker path
+        // Compute MBR consensus scores (probability-weighted avg edit distance)
+        let n = candidates.count
+        let mbrScores: [Float]
+        if n > 1 {
+            let maxLP = candidates.map(\.logProb).max()!
+            let rawProbs = candidates.map { expf($0.logProb - maxLP) }
+            let probSum = rawProbs.reduce(0, +)
+            let probs = rawProbs.map { $0 / probSum }
+
+            var scores = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                for j in (i+1)..<n {
+                    let d = Float(Self.phonemeEditDistance(candidates[i].text, candidates[j].text))
+                    scores[i] += probs[j] * d
+                    scores[j] += probs[i] * d
+                }
+            }
+            mbrScores = scores
+        } else {
+            mbrScores = [0]
+        }
+
+        let mbrWeight: Float = 0.3
+
+        // Neural reranker path + MBR
         if let rr = reranker {
             var bestScore: Float = -.infinity
             var bestText: String = candidates[0].text
-            for (text, modelLP) in candidates {
+            for (i, (text, modelLP)) in candidates.enumerated() {
                 let trigramLP = lm.logProb(text)
-                let score = rr.score(word: word, candidate: text,
-                                     modelLogProb: modelLP, trigramLogProb: trigramLP)
+                let rrScore = rr.score(word: word, candidate: text,
+                                       modelLogProb: modelLP, trigramLogProb: trigramLP)
+                let score = rrScore - mbrWeight * mbrScores[i]
                 if score > bestScore {
                     bestScore = score
                     bestText = text
@@ -217,12 +242,12 @@ public final class BARTG2P {
             return bestText
         }
 
-        // Fallback: trigram-only rescoring
+        // Fallback: trigram + MBR rescoring
         let lambda: Float = 0.35
         var bestScore: Float = -.infinity
         var bestText: String = candidates[0].text
-        for (text, modelLP) in candidates {
-            let combined = modelLP + lambda * lm.logProb(text)
+        for (i, (text, modelLP)) in candidates.enumerated() {
+            let combined = modelLP + lambda * lm.logProb(text) - mbrWeight * mbrScores[i]
             if combined > bestScore {
                 bestScore = combined
                 bestText = text
@@ -232,13 +257,16 @@ public final class BARTG2P {
     }
 
     /// Return all beam candidates sorted by score (best first).
-    public func predictNBest(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0) -> [String] {
-        return predictNBestScored(word, beamWidth: beamWidth, lengthPenalty: lengthPenalty)
+    public func predictNBest(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0,
+                             diversityPenalty: Float = 0.0) -> [String] {
+        return predictNBestScored(word, beamWidth: beamWidth, lengthPenalty: lengthPenalty,
+                                  diversityPenalty: diversityPenalty)
             .map { $0.text }
     }
 
     /// Return all beam candidates with their log-probabilities, sorted best-first.
-    public func predictNBestScored(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0) -> [(text: String, logProb: Float)] {
+    public func predictNBestScored(_ word: String, beamWidth: Int, lengthPenalty: Float = 0.0,
+                                   diversityPenalty: Float = 0.0) -> [(text: String, logProb: Float)] {
         let gIds = word.compactMap { graphemeToId[$0] }
         guard !gIds.isEmpty, gIds.count + 2 <= Self.maxPos else { return [] }
 
@@ -248,7 +276,8 @@ public final class BARTG2P {
         let cK = linear(encOut, rows: encIn.count, wt: dCKW, b: dCKB, outD: d)
         let cV = linear(encOut, rows: encIn.count, wt: dCVW, b: dCVB, outD: d)
         let beams = beamSearchCore(cK: cK, cV: cV, encLen: encIn.count,
-                                   beamWidth: beamWidth, lengthPenalty: lengthPenalty)
+                                   beamWidth: beamWidth, lengthPenalty: lengthPenalty,
+                                   diversityPenalty: diversityPenalty)
 
         return beams.compactMap { beam in
             let chars = beam.tokens.dropFirst()
@@ -405,9 +434,13 @@ public final class BARTG2P {
     }
 
     /// Core beam search returning all beams sorted best-first by length-normalized score.
+    /// When `diversityPenalty > 0`, uses greedy diverse selection: at each step, candidates
+    /// whose last token was already selected receive a penalty, encouraging token diversity.
     private func beamSearchCore(cK: [Float], cV: [Float], encLen: Int,
-                                beamWidth: Int, lengthPenalty: Float) -> [Beam] {
+                                beamWidth: Int, lengthPenalty: Float,
+                                diversityPenalty: Float = 0.0) -> [Beam] {
         let maxSteps = min(50, Self.maxPos - 2)
+        let diverse = diversityPenalty > 0
 
         var beams = [Beam(tokens: [Self.bosId], logProb: 0.0,
                           saKCache: [], saVCache: [], finished: false)]
@@ -444,10 +477,42 @@ public final class BARTG2P {
 
             guard !candidates.isEmpty else { break }
 
-            candidates.sort { ($0.logProb / powf(Float($0.tokens.count), lengthPenalty)) > ($1.logProb / powf(Float($1.tokens.count), lengthPenalty)) }
-            let kept = candidates.prefix(beamWidth)
+            let chosen: [(tokens: [Int], logProb: Float,
+                          saKCache: [Float], saVCache: [Float])]
+            if diverse {
+                // Greedy diverse selection: penalize repeated last-tokens
+                let scored = candidates.map { c in
+                    (c, c.logProb / powf(Float(c.tokens.count), lengthPenalty))
+                }
+                var selected: [(tokens: [Int], logProb: Float,
+                               saKCache: [Float], saVCache: [Float])] = []
+                var used = Set<Int>()
+                var tokenCounts = [Int: Int]()
 
-            beams = kept.map { c in
+                while selected.count < beamWidth {
+                    var bestIdx = -1
+                    var bestScore: Float = -.infinity
+                    for (idx, (c, baseScore)) in scored.enumerated() where !used.contains(idx) {
+                        let penalty = Float(tokenCounts[c.tokens.last!] ?? 0) * diversityPenalty
+                        let score = baseScore - penalty
+                        if score > bestScore {
+                            bestScore = score
+                            bestIdx = idx
+                        }
+                    }
+                    guard bestIdx >= 0 else { break }
+                    used.insert(bestIdx)
+                    let pick = scored[bestIdx].0
+                    tokenCounts[pick.tokens.last!, default: 0] += 1
+                    selected.append(pick)
+                }
+                chosen = selected
+            } else {
+                candidates.sort { ($0.logProb / powf(Float($0.tokens.count), lengthPenalty)) > ($1.logProb / powf(Float($1.tokens.count), lengthPenalty)) }
+                chosen = Array(candidates.prefix(beamWidth))
+            }
+
+            beams = chosen.map { c in
                 Beam(tokens: c.tokens, logProb: c.logProb,
                      saKCache: c.saKCache, saVCache: c.saVCache,
                      finished: c.tokens.last == Self.eosId)
@@ -478,6 +543,26 @@ public final class BARTG2P {
         // logSoftmax = shifted - log(sum(exp(shifted)))
         var negLogSum = -logf(sum)
         vDSP_vsadd(logits, 1, &negLogSum, &logits, 1, n)
+    }
+
+    /// Phoneme-level Levenshtein edit distance.
+    private static func phonemeEditDistance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        let m = a.count, n = b.count
+        if m == 0 { return n }
+        if n == 0 { return m }
+        var prev = Array(0...n)
+        var curr = [Int](repeating: 0, count: n + 1)
+        for i in 1...m {
+            curr[0] = i
+            for j in 1...n {
+                curr[j] = a[i-1] == b[j-1]
+                    ? prev[j-1]
+                    : 1 + min(prev[j-1], prev[j], curr[j-1])
+            }
+            swap(&prev, &curr)
+        }
+        return prev[n]
     }
 
     // MARK: - Linear Algebra

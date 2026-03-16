@@ -22,7 +22,7 @@ import BARTG2P
 
 let g2p = BARTG2P.fromBundle()!
 
-g2p.predict("kubernetes")                     // "kˌubəɹnˈits" (~1.7ms, beam search + trigram LM)
+g2p.predict("kubernetes")                     // "kˌubəɹnˈits" (~1.7ms, beam + reranker)
 g2p.predict("kubernetes", rescoreLM: false)   // greedy only (~0.6ms, slightly less accurate)
 ```
 
@@ -32,11 +32,13 @@ g2p.predict("kubernetes", rescoreLM: false)   // greedy only (~0.6ms, slightly l
 graph LR
     A[input word] --> B[grapheme tokenizer]
     B --> C[BART encoder<br/>self-attn + FFN]
-    C --> D[BART decoder<br/>causal self-attn +<br/>cross-attn + FFN<br/>greedy]
-    D --> E[IPA phonemes]
+    C --> D[BART decoder<br/>causal self-attn +<br/>cross-attn + FFN]
+    D --> E[diverse beam search]
+    E --> F[MBR + reranker]
+    F --> G[IPA phonemes]
 ```
 
-single encoder layer, single decoder layer. KV-cached autoregressive decoding with optional beam search + phoneme trigram LM rescoring. all matrix ops go through `cblas_sgemm` / `vDSP`. weights loaded from safetensors at init.
+single encoder layer, single decoder layer. KV-cached autoregressive decoding -- diverse beam search generates candidates, MBR consensus and a neural reranker pick the winner. all matrix ops go through `cblas_sgemm` / `vDSP`. weights loaded from safetensors at init.
 
 ## accuracy
 
@@ -44,8 +46,8 @@ on 1000-word CMUdict sample:
 
 | mode | exact match | loose match | PER |
 |------|-------------|-------------|-----|
-| greedy (default) | 35.7% | 49.5% | 12.8% |
-| rescoreLM | 37.5% | 52.1% | 12.1% |
+| greedy | 35.7% | 49.5% | 12.8% |
+| rescoreLM (default) | 35.5% | 56.3% | 11.2% |
 
 "loose" normalizes stress markers and allophones before comparison. PER = phoneme error rate.
 
