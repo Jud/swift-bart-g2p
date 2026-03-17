@@ -51,6 +51,22 @@ on 1000-word CMUdict sample:
 
 "loose" normalizes stress markers and allophones before comparison. PER = phoneme error rate.
 
+## hard words
+
+the stuff dictionaries can't help you with.
+
+| word | output | what's hard |
+|------|--------|-------------|
+| debt | dˈɛt | silent b |
+| receipt | ɹəsˈit | silent p |
+| yacht | jˈɑt | silent ch |
+| bourgeois | bʊɹʒwˈɑ | french loanword |
+| espresso | ɛspɹˈɛsO | not "expresso" |
+| kubernetes | kˌubəɹnˈits | tech term, pure OOV |
+| webpack | wˈɛbpˌæk | compound neologism |
+| onomatopoeia | ˌɑnəmˌæɾəpˈiə | 6 syllables, greek roots |
+| antidisestablishmentarianism | ˌæntɪdˌɪsəstˈæblɪʃməntˈɛɹiənˌɪzəm | 12 syllables, stress everywhere |
+
 ## model
 
 - **source**: [PeterReid/graphemes_to_phonemes_en_us](https://huggingface.co/PeterReid/graphemes_to_phonemes_en_us)

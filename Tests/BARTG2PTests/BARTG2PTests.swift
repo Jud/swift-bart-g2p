@@ -186,6 +186,73 @@ struct BARTG2PTests {
         #expect(r.avgPER < 0.12, "RescoreLM PER regressed above 12%")
     }
 
+    @Test("Hard words: silent letters, loanwords, tech terms, long words")
+    func hardWords() throws {
+        let bart = try #require(BARTG2P.fromBundle())
+
+        // silent letters -- model must drop the right graphemes
+        let silentLetters: [(String, String)] = [
+            ("debt", "dˈɛt"),           // silent b
+            ("subtle", "sˈʌɾᵊl"),       // silent b
+            ("receipt", "ɹəsˈit"),       // silent p
+            ("island", "ˈIlənd"),        // silent s
+            ("aisle", "ˈAl"),            // silent s + e
+            ("yacht", "jˈɑt"),           // silent ch
+        ]
+
+        // irregular / loanwords -- spelling is barely a hint
+        let irregular: [(String, String)] = [
+            ("bourgeois", "bʊɹʒwˈɑ"),
+            ("bureau", "bjʊɹˈO"),
+            ("espresso", "ɛspɹˈɛsO"),
+            ("specifically", "spəsˈɪfɪkli"),
+        ]
+
+        // tech / OOV -- the actual use case
+        let tech: [(String, String)] = [
+            ("kubernetes", "kˌubəɹnˈits"),
+            ("webpack", "wˈɛbpˌæk"),
+            ("devops", "dɪvˈɑps"),
+        ]
+
+        // long words -- stress placement across many syllables
+        let long: [(String, String)] = [
+            ("onomatopoeia", "ˌɑnəmˌæɾəpˈiə"),
+            ("antidisestablishmentarianism", "ˌæntɪdˌɪsəstˈæblɪʃməntˈɛɹiənˌɪzəm"),
+        ]
+
+        let all = silentLetters + irregular + tech + long
+        var failures = 0
+        for (word, expected) in all {
+            let result = bart.predict(word)
+            if result != expected {
+                failures += 1
+                Issue.record("\(word): got \(result ?? "nil"), expected \(expected)")
+            }
+        }
+        #expect(failures == 0, "\(failures)/\(all.count) hard words mismatched")
+    }
+
+    @Test("RescoreLM improves over greedy on ambiguous words")
+    func rescoreLMImprovesOnAmbiguous() throws {
+        let bart = try #require(BARTG2P.fromBundle())
+
+        // words where greedy gets it wrong but rescoreLM gets it right
+        let cases: [(String, String, String)] = [
+            //         greedy         rescoreLM
+            ("webpack", "wˈɛpæk",     "wˈɛbpˌæk"),
+            ("devops",  "dəvˈɑps",    "dɪvˈɑps"),
+        ]
+
+        for (word, greedyExpected, rescoreExpected) in cases {
+            let greedy = bart.predict(word, rescoreLM: false)
+            let rescore = bart.predict(word, rescoreLM: true)
+            #expect(greedy == greedyExpected, "\(word) greedy: got \(greedy ?? "nil")")
+            #expect(rescore == rescoreExpected, "\(word) rescore: got \(rescore ?? "nil")")
+            #expect(greedy != rescore, "rescoreLM should differ from greedy for \(word)")
+        }
+    }
+
     @Test("Benchmark: inference throughput")
     func benchmark() throws {
         let bart = try #require(BARTG2P.fromBundle())
