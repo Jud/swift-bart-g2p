@@ -19,6 +19,10 @@ public final class BARTG2P {
     private let graphemeToId: [Character: Int]
     private let idToPhoneme: [Int: Character]
 
+    /// Pronunciation override dictionary (lazy-loaded).
+    private var overrides: [String: String]?
+    private var overridesChecked = false
+
     /// Phoneme trigram LM for beam rescoring (lazy-loaded).
     private var trigramLM: PhonemeTrigramLM?
 
@@ -134,6 +138,30 @@ public final class BARTG2P {
         return BARTG2P(weightsURL: wURL, configURL: cURL)
     }
 
+    /// The loaded pronunciation overrides (word → IPA). Triggers lazy-load on first access.
+    public var pronunciationOverrides: [String: String] {
+        _ = lookupOverride("")
+        return overrides ?? [:]
+    }
+
+    /// Look up a word in the pronunciation override dictionary.
+    private func lookupOverride(_ word: String) -> String? {
+        if !overridesChecked {
+            overridesChecked = true
+            if let url = Bundle.module.url(forResource: "tech_overrides", withExtension: "tsv"),
+               let data = try? String(contentsOf: url, encoding: .utf8) {
+                var dict = [String: String]()
+                for line in data.split(separator: "\n") where !line.isEmpty {
+                    let parts = line.split(separator: "\t", maxSplits: 1)
+                    guard parts.count == 2 else { continue }
+                    dict[String(parts[0])] = String(parts[1])
+                }
+                overrides = dict
+            }
+        }
+        return overrides?[word.lowercased()]
+    }
+
     /// Predict IPA phonemes for a lowercased word.
     /// - Parameters:
     ///   - word: Input word (lowercased).
@@ -142,6 +170,9 @@ public final class BARTG2P {
     ///   - rescoreLM: When true, uses beam=8 and rescores with a phoneme trigram LM for better accuracy.
     public func predict(_ word: String, beamWidth: Int = 1, lengthPenalty: Float = 0.0,
                         rescoreLM: Bool = true) -> String? {
+        // Check override dictionary first
+        if let ipa = lookupOverride(word) { return ipa }
+
         if rescoreLM {
             return predictWithLMRescore(word)
         }

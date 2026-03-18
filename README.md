@@ -22,7 +22,7 @@ import BARTG2P
 
 let g2p = BARTG2P.fromBundle()!
 
-g2p.predict("kubernetes")                     // "kˌubəɹnˈits" (~1.7ms, beam + reranker)
+g2p.predict("kubernetes")                     // "kˌubəɹnˈɛTiz" (~1.7ms, beam + reranker)
 g2p.predict("kubernetes", rescoreLM: false)   // greedy only (~0.6ms, slightly less accurate)
 ```
 
@@ -62,7 +62,7 @@ the stuff dictionaries can't help you with.
 | yacht | jˈɑt | silent ch |
 | bourgeois | bʊɹʒwˈɑ | french loanword |
 | espresso | ɛspɹˈɛsO | not "expresso" |
-| kubernetes | kˌubəɹnˈits | tech term, pure OOV |
+| kubernetes | kˌubəɹnˈɛTiz | tech term, override dict |
 | webpack | wˈɛbpˌæk | compound neologism |
 | onomatopoeia | ˌɑnəmˌæɾəpˈiə | 6 syllables, greek roots |
 | antidisestablishmentarianism | ˌæntɪdˌɪsəstˈæblɪʃməntˈɛɹiənˌɪzəm | 12 syllables, stress everywhere |

@@ -16,7 +16,7 @@ struct BARTG2PTests {
             ("hello", "hˈɛlO"),
             ("cat", "kˈæt"),
             ("world", "wˈɜɹld"),
-            ("kubernetes", "kˌubəɹnˈits"),
+            ("kubernetes", "kˌubəɹnˈɛTiz"),
             ("apple", "əpˈAl"),
             ("banana", "bənˈɑnə"),
             ("computer", "kəmpjˈuɾəɹ"),
@@ -96,6 +96,27 @@ struct BARTG2PTests {
                 }
             }
         }
+    }
+
+    @Test("All overrides correct words the model gets wrong")
+    func overridesAreNecessary() throws {
+        let bart = try #require(BARTG2P.fromBundle())
+        let overrides = bart.pronunciationOverrides
+        #expect(!overrides.isEmpty, "Override dictionary should not be empty")
+
+        var unnecessary = 0
+        for (word, override) in overrides {
+            // predictNBestScored bypasses the override dict, giving raw model output.
+            // Use diverse beam search (same config as rescoreLM path) to get best candidates.
+            let candidates = bart.predictNBestScored(word, beamWidth: 8, diversityPenalty: 1.5)
+            let modelBest = candidates.first?.text
+
+            if modelBest == override {
+                unnecessary += 1
+                Issue.record("Override unnecessary for \(word): model already produces \(override)")
+            }
+        }
+        #expect(unnecessary == 0, "\(unnecessary) overrides are unnecessary — model already correct")
     }
 
     @Test("Dictionary accuracy: 1000-word CMUdict sample (greedy)")
@@ -210,7 +231,7 @@ struct BARTG2PTests {
 
         // tech / OOV -- the actual use case
         let tech: [(String, String)] = [
-            ("kubernetes", "kˌubəɹnˈits"),
+            ("kubernetes", "kˌubəɹnˈɛTiz"),
             ("webpack", "wˈɛbpˌæk"),
             ("devops", "dɪvˈɑps"),
         ]
